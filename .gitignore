@@ -1,0 +1,34 @@
+# Raw historical data archives (kept locally or in GitHub releases, not in git history)
+data/
+
+# Analysis & temporary outputs
+output/
+scratch/
+
+# Databases & archives
+*.prof
+*.db
+*.zst
+*.db-journal
+*.duckdb
+*.duckdb.wal
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+.env
+
+# Testing & Coverage
+*.cover
+*.py,cover
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db

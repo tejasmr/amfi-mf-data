@@ -1,0 +1,62 @@
+name: Daily Update
+
+on:
+  schedule:
+    # 04:00 UTC = 09:30 IST
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    name: Daily Direct-Growth Update
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        fetch-depth: 1
+        submodules: recursive
+
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.12'
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install duckdb zstandard
+        if [ -d "tjql" ]; then
+          pip install -e ./tjql
+        else
+          pip install git+https://github.com/tejasmr/tjql.git
+        fi
+
+    - name: Download Latest DuckDB Release
+      run: |
+        # Try downloading from 'latest' release, falling back to the repo's latest release
+        gh release download latest --pattern "funds.duckdb.zst" || gh release download --pattern "funds.duckdb.zst"
+        unzstd -f funds.duckdb.zst
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Run Incremental Update
+      run: |
+        python scripts/daily_update.py --database funds.duckdb
+
+    - name: Compress Database
+      run: |
+        zstd -5 -T0 -f funds.duckdb -o funds.duckdb.zst
+        ls -lh funds.duckdb.zst
+
+    - name: Publish Updated Release
+      run: |
+        # Update the 'latest' release asset, or create it if it doesn't exist yet
+        gh release upload latest funds.duckdb.zst --clobber || \
+        gh release create latest funds.duckdb.zst \
+          --title "Latest Mutual Fund Data (Rolling)" \
+          --notes "Daily updated Direct-Growth mutual fund dataset in DuckDB format."
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
