@@ -37,19 +37,21 @@ def run_backfill(
     end_date: Optional[str] = None,
     direct_only: bool = True,
     growth_only: bool = True,
-    progress_every: int = 100,
+    progress_every: int = 50,
+    workers: Optional[int] = None,
 ) -> int:
     """
     Executes backfill loading into DuckDB with schema creation and table optimization.
     """
     t0 = time.time()
     LOGGER.info(
-        "Starting backfill into %s: start_date=%s, end_date=%s, direct_only=%s, growth_only=%s",
+        "Starting backfill into %s: start_date=%s, end_date=%s, direct_only=%s, growth_only=%s, workers=%s",
         database_path,
         start_date,
         end_date,
         direct_only,
         growth_only,
+        workers or "all CPUs",
     )
 
     total_nav_loaded = load_data(
@@ -60,6 +62,7 @@ def run_backfill(
         end_date=end_date,
         direct_only=direct_only,
         growth_only=growth_only,
+        workers=workers,
     )
 
     # Post-load optimization and validation
@@ -145,8 +148,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument(
         "--progress-every",
         type=int,
-        default=100,
+        default=50,
         help="Log progress after this many files processed",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Number of worker processes for parallel parsing (default: all CPU cores)",
     )
     parser.add_argument(
         "--log-level",
@@ -171,6 +180,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             direct_only=not args.include_regular,
             growth_only=not args.include_idcw,
             progress_every=args.progress_every,
+            workers=args.workers,
         )
         return 0
     except Exception as exc:
