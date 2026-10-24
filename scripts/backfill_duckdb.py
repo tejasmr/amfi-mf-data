@@ -34,7 +34,7 @@ def run_backfill(
     data_dir: Path,
     database_path: Path,
     start_date: str = "2013-01-01",
-    end_date: str = "2026-10-23",
+    end_date: Optional[str] = None,
     direct_only: bool = True,
     growth_only: bool = True,
     progress_every: int = 100,
@@ -129,8 +129,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument(
         "--end-date",
         type=str,
-        default="2026-10-23",
-        help="End date filter (YYYY-MM-DD)",
+        default=None,
+        help="End date filter (YYYY-MM-DD, default: latest available date)",
     )
     parser.add_argument(
         "--include-regular",
