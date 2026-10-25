@@ -4,129 +4,144 @@
 [![Database: DuckDB](https://img.shields.io/badge/database-DuckDB-yellow.svg)](https://duckdb.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-An archive of historical mutual fund pricing information in India. This repository contains the raw data as well as the scripts used to generate it.
+An archive and automated daily pipeline of historical mutual fund Net Asset Value (NAV) information in India, published by the Association of Mutual Funds in India (AMFI).
 
-The data in the `data/` directory is in the same format as AMFI exports it, without any changes. This notably includes a few errors:
+Cleaned, standardized, and packaged into a high-performance, compressed **DuckDB** database using [`tjql`](https://github.com/tejasmr/tjql).
 
-1. Invalid ISINs (such as `NOTAPP` or `NA` for "Not Applied"), and a few with invalid prefixes (`IINF` instead of `INF`) or lowercase ISINs.
-2. Invalid NAV. (`"#N/A",'#DIV/0!','N.A.', 'NA', 'B.C.', 'B. C.'`)
+---
 
-## Usage
+## Features
 
-### Installation
+- **Daily Rolling Updates**: Automatically updated daily via GitHub Actions with the latest NAVs directly from the AMFI portal.
+- **Direct-Growth Focus**: Curated and normalized for Direct-Growth mutual fund plans.
+- **High Performance**: DuckDB columnar storage format compressed with Zstandard (`zstd -5`), reducing ~6.3M records to under 40 MB.
+- **Data Normalization**: Cleans invalid ISIN prefixes, removes `#N/A` and zero values, standardizes scheme names and AMCs.
 
-You can get the latest DuckDB dataset at <https://github.com/tejasmr/amfi-mf-data/releases/latest/download/funds.duckdb.zst>. Each dataset includes historical Direct-Growth NAVs at all known times for a given mutual fund. See below for the data format.
+---
 
-### Setup
+## Download & Setup
 
-The dataset does not include _search indexes_ to reduce the download size. Please run the following commands to setup:
+Download the rolling `latest` release:
 
 ```bash
+# 1. Download latest compressed database
 wget https://github.com/tejasmr/amfi-mf-data/releases/latest/download/funds.duckdb.zst
-unzstd funds.db.zst
-# Create search indexes
-# Main Index to get NAV by date and scheme_code
-echo 'CREATE INDEX "nav-main" ON "nav" ("date","scheme_code")' | sqlite3 funds.db
-# Index by scheme code separately to get NAV for all dates
-echo 'CREATE INDEX "nav-scheme" ON "nav" ("scheme_code")' | sqlite3 funds.db
-# Index all securities by scheme_code for joins with NAV table
-echo 'CREATE INDEX "securities-scheme" ON "securities" ("scheme_code")' | sqlite3 funds.db
-# Index all securities by isin for metadata information
-echo 'CREATE INDEX "securities-isin" ON "securities" ("isin")' | sqlite3 funds.db
+
+# 2. Decompress
+zstd -d funds.duckdb.zst
 ```
 
-## Versioning
+---
 
-The versioning scheme follows CalVer, with the date being used for the minor and patch version in a  `YYYY.MM.DD` format. No stability guarantees are provided for the format or schema.
+## Querying the Dataset
 
-## Data Format
+DuckDB can be queried directly via Python, DuckDB CLI, or SQL client without running an external database server:
 
-The output dataset is a SQLite Database, with the following schema:
+### Python
 
-### schemes
+```python
+import duckdb
 
-```sql
-scheme_code INTEGER PRIMARY_KEY
-scheme_name TEXT
+conn = duckdb.connect("funds.duckdb", read_only=True)
+
+# Fetch latest NAV for a specific ISIN
+res = conn.execute("""
+    SELECT date, nav 
+    FROM nav_by_isin 
+    WHERE isin = 'INF179K01BE2' 
+    ORDER BY date DESC 
+    LIMIT 1
+""").fetchone()
+
+print("Latest NAV:", res)
 ```
 
-### funds
+### DuckDB CLI
 
-```sql
-date
-scheme_code INTEGER
-nav FLOAT
-FOREIGN KEY (scheme_code) REFERENCES schemes(scheme_code));
+```bash
+duckdb funds.duckdb -c "SELECT * FROM active_direct_growth_funds LIMIT 5;"
 ```
 
-### securities
+---
 
-```sql
-isin TEXT UNIQUE
---- 0=Growth/Divident Payout
---- 1=Divident Reinvestment
-type INTEGER 
-scheme_code INTEGER
-FOREIGN KEY (scheme_code) REFERENCES schemes(scheme_code));
-```
+## Database Schema
 
-### nav_by_isin (View)
+### Tables
 
-Helper view to directly query NAV against the ISIN.
+- **`schemes`**: Unique mutual fund schemes
+  - `scheme_code` (INTEGER, Primary Key)
+  - `scheme_name` (TEXT)
+  - `category` (TEXT)
+  - `amc` (TEXT)
+  - `first_seen` (DATE)
+  - `last_seen` (DATE)
 
-```
-isin TEXT
-date
-nav FLOAT
-```
+- **`funds`**: Normalized fund plan metadata
+  - `scheme_code` (INTEGER)
+  - `category` (TEXT)
+  - `amc` (TEXT)
+  - `fund_name` (TEXT)
+  - `base_name` (TEXT)
+  - `plan` (TEXT) - e.g. "Direct"
+  - `option` (TEXT) - e.g. "Growth"
+
+- **`securities`**: ISIN mapping
+  - `isin` (TEXT, Primary Key)
+  - `type` (INTEGER) - 0 = Growth / Payout, 1 = Reinvestment
+  - `scheme_code` (INTEGER, Foreign Key)
+
+- **`nav`**: Historical daily valuations
+  - `scheme_code` (INTEGER)
+  - `date` (DATE)
+  - `nav` (DOUBLE)
+  - *Primary Key: (`scheme_code`, `date`)*
+
+### Helper Views
+
+- **`nav_by_isin`**: Maps ISIN directly to historical NAV dates (`isin`, `date`, `nav`).
+- **`active_direct_growth_funds`**: Active Direct-Growth schemes with AMC, category, and names.
+- **`continuous_nav_by_isin`**: Continuous calendar-day NAV time-series with weekend/holiday forward-filling.
+- **`equity_trading_calendar`**: Indian equity trading calendar dates.
+
+---
 
 ## Common Queries
 
-### NAV as per Date from ISIN
-
-Since Data is not always available on all dates, you need to get the latest value before or on that date:
-
+### 1. Latest NAV for an ISIN
 ```sql
-SELECT date,nav from nav_by_isin
-WHERE isin='INF277K01741'
-AND date<='2023-03-23'
+SELECT date, nav 
+FROM nav_by_isin
+WHERE isin = 'INF277K01741'
 ORDER BY date DESC
-LIMIT 0,1
+LIMIT 1;
 ```
 
-### Latest NAV
-
+### 2. Historical NAVs over Last 90 Trading Days
 ```sql
-SELECT nav from nav_by_isin
-WHERE isin='INF277K01741'
+SELECT date, nav 
+FROM nav_by_isin
+WHERE isin = 'INF277K01741'
 ORDER BY date DESC
-LIMIT 0,1
+LIMIT 90;
 ```
 
-### Last 90 Financial Days NAV
-
+### 3. List Active Direct-Growth Funds by Category
 ```sql
-SELECT date,nav from nav_by_isin
-WHERE isin='INF277K01741'
-ORDER BY date DESC
-LIMIT 0,90
+SELECT scheme_code, amc, fund_name, category
+FROM active_direct_growth_funds
+WHERE category LIKE '%Large Cap%'
+ORDER BY amc, fund_name;
 ```
 
-### Get Metadata of all Mutual Funds from ISIN
+---
 
-```sql
-SELECT isin,type,S1.scheme_code,scheme_name FROM securities S1
-LEFT JOIN schemes S2 ON S1.scheme_code = S2.scheme_code
-```
+## Pipelines & Automation
 
-### Get Information of Specific Funds from ISIN
+- **Daily Incremental Update**: Triggered daily via GitHub Actions ([`.github/workflows/update.yml`](.github/workflows/update.yml)) using [`scripts/daily_update.py`](scripts/daily_update.py).
+- **Historical Backfill**: Manual trigger via [`.github/workflows/backfill.yml`](.github/workflows/backfill.yml) using [`scripts/backfill_duckdb.py`](scripts/backfill_duckdb.py).
 
-```sql
-SELECT isin,type,S1.scheme_code,scheme_name FROM securities S1
-LEFT JOIN schemes S2 ON S1.scheme_code = S2.scheme_code
-WHERE isin='INF277K01741'
-```
+---
 
 ## License
 
-Licensed under the [MIT License](https://nemo.mit-license.org/). See LICENSE file for details.
+Licensed under the [MIT License](LICENSE).
