@@ -1,0 +1,67 @@
+name: Test Discord Notification
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Target Discord Channel'
+        required: true
+        default: 'all-analytics'
+        type: choice
+        options:
+          - 'all-analytics'
+          - 'index-analytics'
+          - 'equity-fund-analytics'
+          - 'other-fund-analytics'
+          - 'eod'
+          - 'all'
+      mode:
+        description: 'Notification Mode'
+        required: true
+        default: 'triggers'
+        type: choice
+        options:
+          - 'triggers'
+          - 'test'
+          - 'summary'
+
+jobs:
+  notify:
+    name: Deliver Discord Webhook Alert
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Download & Prepare DuckDB (triggers/summary mode)
+        if: ${{ inputs.mode != 'test' }}
+        run: |
+          gh release download latest --pattern "funds.duckdb.zst" || gh release download --pattern "funds.duckdb.zst"
+          zstd -d -f funds.duckdb.zst
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          if [ -n "$TJQL_TOKEN" ]; then
+            pip install "git+https://${TJQL_TOKEN}@github.com/tejasmr/tjql.git"
+          else
+            pip install "git+https://github.com/tejasmr/tjql.git"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TJQL_TOKEN: ${{ secrets.TJQL_TOKEN }}
+
+      - name: Send Discord Alert
+        run: |
+          python scripts/notify_discord.py --mode "${{ inputs.mode }}" --database funds.duckdb --channel "${{ inputs.channel }}"
+        env:
+          DISCORD_WEBHOOK_URL_INDEX_ANALYTICS: ${{ secrets.DISCORD_WEBHOOK_URL_INDEX_ANALYTICS }}
+          DISCORD_WEBHOOK_URL_EQUITY_FUND_ANALYTICS: ${{ secrets.DISCORD_WEBHOOK_URL_EQUITY_FUND_ANALYTICS }}
+          DISCORD_WEBHOOK_URL_OTHER_FUND_ANALYTICS: ${{ secrets.DISCORD_WEBHOOK_URL_OTHER_FUND_ANALYTICS }}
+          DISCORD_WEBHOOK_URL_EOD: ${{ secrets.DISCORD_WEBHOOK_URL_EOD }}
