@@ -37,12 +37,14 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install duckdb zstandard
-        if [ -d "tjql" ]; then
-          pip install -e ./tjql
+        pip install -r requirements.txt
+        if [ -n "$TJQL_TOKEN" ]; then
+          pip install "git+https://${TJQL_TOKEN}@github.com/tejasmr/tjql.git"
         else
-          pip install git+https://github.com/tejasmr/tjql.git
+          pip install "git+https://github.com/tejasmr/tjql.git"
         fi
+      env:
+        TJQL_TOKEN: ${{ secrets.TJQL_TOKEN }}
 
     - name: Run Backfill
       run: |
