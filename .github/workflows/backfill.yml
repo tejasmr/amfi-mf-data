@@ -64,5 +64,5 @@ jobs:
           --notes "Complete Direct-Growth mutual fund dataset in DuckDB format up to ${{ inputs.end_date }}. Cleaned and normalized with tjql." \
           funds.duckdb.zst
       env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

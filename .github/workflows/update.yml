@@ -2,8 +2,9 @@ name: Daily Update
 
 on:
   schedule:
-    # 04:00 UTC = 09:30 IST
-    - cron: '0 4 * * *'
+    # 06:36 UTC = 12:06 PM IST
+    # Scheduled at an off-peak minute to avoid runner queue congestion on top of the hour
+    - cron: '36 6 * * *'
   workflow_dispatch:
 
 permissions:
@@ -38,8 +39,9 @@ jobs:
       run: |
         # Try downloading from 'latest' release, falling back to the repo's latest release
         gh release download latest --pattern "funds.duckdb.zst" || gh release download --pattern "funds.duckdb.zst"
-        unzstd -f funds.duckdb.zst
+        zstd -d -f funds.duckdb.zst
       env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Run Incremental Update
@@ -59,4 +61,5 @@ jobs:
           --title "Latest Mutual Fund Data (Rolling)" \
           --notes "Daily updated Direct-Growth mutual fund dataset in DuckDB format."
       env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
