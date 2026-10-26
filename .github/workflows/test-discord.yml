@@ -42,11 +42,8 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Download & Prepare DuckDB (triggers/summary mode)
-        if: ${{ inputs.mode != 'test' }}
+      - name: Install dependencies
         run: |
-          gh release download latest --pattern "funds.duckdb.zst" || gh release download --pattern "funds.duckdb.zst"
-          zstd -d -f funds.duckdb.zst
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           if [ -n "$TJQL_TOKEN" ]; then
@@ -55,9 +52,16 @@ jobs:
             pip install "git+https://github.com/tejasmr/tjql.git"
           fi
         env:
+          TJQL_TOKEN: ${{ secrets.TJQL_TOKEN }}
+
+      - name: Download & Prepare DuckDB (triggers/summary mode)
+        if: ${{ inputs.mode == 'triggers' || inputs.mode == 'summary' }}
+        run: |
+          gh release download latest --pattern "funds.duckdb.zst" || gh release download --pattern "funds.duckdb.zst"
+          zstd -d -f funds.duckdb.zst
+        env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TJQL_TOKEN: ${{ secrets.TJQL_TOKEN }}
 
       - name: Send Discord Alert
         run: |

@@ -36,8 +36,13 @@ for candidate in (_REPO_ROOT / "tjql", _REPO_ROOT.parent / "tjql"):
     if candidate.is_dir() and str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
-from tjql import clean_fund_display_name as _clean_fund_display_name
-from tjql import is_indian_market_hours, scan_live_index_opportunities
+try:
+    from tjql import clean_fund_display_name as _clean_fund_display_name
+    from tjql import is_indian_market_hours, scan_live_index_opportunities
+except ImportError:
+    _clean_fund_display_name = lambda name: name
+    is_indian_market_hours = lambda: True
+    scan_live_index_opportunities = lambda **kwargs: []
 
 
 def send_discord_webhook(webhook_url: str, payload: dict) -> None:
