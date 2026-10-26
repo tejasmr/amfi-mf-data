@@ -1,10 +1,6 @@
 name: 🌙 EOD
 
 on:
-  schedule:
-    # 04:23 UTC = 09:53 AM IST
-    # Scheduled at an off-peak minute to avoid runner queue congestion on top of the hour
-    - cron: '23 4 * * *'
   workflow_dispatch:
 
 permissions:
