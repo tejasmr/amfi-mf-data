@@ -1,6 +1,6 @@
 # AMFI Mutual Funds Data
 
-[![Daily Update](https://github.com/tejasmr/amfi-mf-data/actions/workflows/update.yml/badge.svg?branch=main)](https://github.com/tejasmr/amfi-mf-data/actions/workflows/update.yml)
+[![EOD](https://github.com/tejasmr/amfi-mf-data/actions/workflows/update.yml/badge.svg?branch=main)](https://github.com/tejasmr/amfi-mf-data/actions/workflows/update.yml)
 [![Database: DuckDB](https://img.shields.io/badge/database-DuckDB-yellow.svg)](https://duckdb.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
