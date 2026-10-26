@@ -53,7 +53,7 @@ jobs:
           echo "date=$(TZ='Asia/Kolkata' date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
 
       - name: Cache Intraday Alert State
-        uses: actions/cache@v7
+        uses: actions/cache@v6
         with:
           path: .intraday_cache
           key: intraday-state-${{ steps.cache-key.outputs.date }}-${{ github.run_id }}
