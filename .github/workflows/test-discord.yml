@@ -13,6 +13,7 @@ on:
           - 'index-analytics'
           - 'equity-fund-analytics'
           - 'other-fund-analytics'
+          - 'intraday'
           - 'eod'
           - 'all'
       mode:
@@ -24,6 +25,7 @@ on:
           - 'triggers'
           - 'test'
           - 'summary'
+          - 'intraday'
 
 jobs:
   notify:
@@ -59,9 +61,14 @@ jobs:
 
       - name: Send Discord Alert
         run: |
-          python scripts/notify_discord.py --mode "${{ inputs.mode }}" --database funds.duckdb --channel "${{ inputs.channel }}"
+          FORCE_FLAG=""
+          if [ "${{ inputs.mode }}" = "intraday" ] || [ "${{ inputs.mode }}" = "test" ]; then
+            FORCE_FLAG="--force"
+          fi
+          python scripts/notify_discord.py --mode "${{ inputs.mode }}" --database funds.duckdb --channel "${{ inputs.channel }}" $FORCE_FLAG
         env:
           DISCORD_WEBHOOK_URL_INDEX_ANALYTICS: ${{ secrets.DISCORD_WEBHOOK_URL_INDEX_ANALYTICS }}
           DISCORD_WEBHOOK_URL_EQUITY_FUND_ANALYTICS: ${{ secrets.DISCORD_WEBHOOK_URL_EQUITY_FUND_ANALYTICS }}
           DISCORD_WEBHOOK_URL_OTHER_FUND_ANALYTICS: ${{ secrets.DISCORD_WEBHOOK_URL_OTHER_FUND_ANALYTICS }}
+          DISCORD_WEBHOOK_URL_INTRADAY: ${{ secrets.DISCORD_WEBHOOK_URL_INTRADAY }}
           DISCORD_WEBHOOK_URL_EOD: ${{ secrets.DISCORD_WEBHOOK_URL_EOD }}

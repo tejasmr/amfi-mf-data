@@ -37,6 +37,7 @@ for candidate in (_REPO_ROOT / "tjql", _REPO_ROOT.parent / "tjql"):
         sys.path.insert(0, str(candidate))
 
 from tjql import clean_fund_display_name as _clean_fund_display_name
+from tjql import is_indian_market_hours, scan_live_index_opportunities
 
 
 def send_discord_webhook(webhook_url: str, payload: dict) -> None:
@@ -62,6 +63,8 @@ def build_test_embed(channel_label: str = "#index-analytics") -> dict:
         scope_desc = "Market & Sectoral Index Dips (NIFTY 50, Realty, IT, Auto, Energy, etc.)"
     elif "equity" in ch:
         scope_desc = "Core Equity Mutual Funds (Large Cap, Mid Cap, Small Cap, Flexi Cap)"
+    elif "intraday" in ch:
+        scope_desc = "Live Real-Time Index Fund & ETF Dips (High-Conviction Pre-Cutoff Opportunities)"
     elif "other" in ch:
         scope_desc = "Specialized & Thematic Funds (Index Funds, ETFs, Sectoral, Thematic)"
     elif "eod" in ch:
@@ -586,6 +589,157 @@ def build_summary_embed(db_path: Path) -> dict:
         conn.close()
 
 
+
+def build_intraday_embed(opportunities: list[dict], now_str: str) -> dict:
+    """Builds a rich, color-coded embed card for high-conviction intraday index fund opportunities."""
+    max_tier = max((opp.get("active_tier", 0) for opp in opportunities), default=0)
+    has_52w_low = any("52-Week Low" in opp.get("opportunity_reason", "") for opp in opportunities)
+    has_flash_dip = any("Flash Dip" in opp.get("opportunity_reason", "") for opp in opportunities)
+
+    if has_52w_low:
+        title = "🎯 INTRADAY BUY ALERT: Index at 52-Week Low"
+        color = 0xED4245
+    elif max_tier >= 4 or has_flash_dip:
+        title = "🚨 INTRADAY BUY ALERT: Bear Market / Flash Dip Active"
+        color = 0xED4245
+    elif max_tier >= 3:
+        title = "📉 INTRADAY DIP ALERT: Deep Correction Bottom Levels"
+        color = 0xE67E22
+    else:
+        title = "⚡ INTRADAY BUY ALERT: High-Conviction Index Dip"
+        color = 0xF1C40F
+
+    parts = [
+        f"# {title}",
+        "> ⏰ **Mutual Fund Cut-Off Window**: Place Index Mutual Fund orders before **3:00 PM IST** to lock in today's closing NAV!",
+        "## 💎 Active High-Conviction Opportunities",
+    ]
+
+    for opp in opportunities[:10]:
+        name = opp["name"]
+        cat = opp.get("category", "Index")
+        price = opp["price"]
+        day_chg = opp["day_chg"]
+        day_str = f"+{day_chg:.2f}%" if day_chg > 0 else f"{day_chg:.2f}%"
+        dd_52 = opp["dd_52"]
+        bounce_low = opp["bounce_low"]
+        tier = opp.get("active_tier", 1)
+        mult = opp.get("suggested_multiplier", 1.25)
+        reason = opp.get("opportunity_reason", "Opportunity")
+        funds = opp.get("sample_funds", "")
+
+        low_desc = "**AT LOWEST (0.00%)**" if bounce_low <= 0.05 else f"`+{bounce_low:.2f}%` from low"
+
+        card = (
+            f"### 📊 {name} (`{cat}`)\n"
+            f"> 🎯 **Status**: **{reason}**\n"
+            f"> 🔻 **52W Drawdown**: **`{dd_52:+.2f}%`**  │  Bounce: {low_desc}\n"
+            f"> ⚡ **Live Price**: `₹{price:,.2f}` ({day_str} today)  │  Booster: **`{mult:.2f}x SIP`** (Tier {tier})\n"
+            f"> 🛒 **Vehicles**: *{funds}*"
+        )
+        parts.append(card)
+
+    if len(opportunities) > 10:
+        parts.append(f"\n*Showing top 10 opportunities ({len(opportunities)} currently meeting strict high-conviction criteria).*")
+
+    return {
+        "description": "\n\n".join(parts),
+        "color": color,
+        "footer": {"text": f"TJQL Intraday Screener • {now_str} • Verified Live Tickers"},
+    }
+
+
+def check_intraday_deduplication(
+    opportunities: list[dict],
+    cache_path: Path,
+    force: bool = False,
+    now: datetime | None = None,
+) -> tuple[bool, str]:
+    """Checks whether notification should be sent based on intraday state caching."""
+    if force:
+        return True, "Force flag specified (bypassing cache)"
+
+    from datetime import timedelta, timezone
+    dt_now = now or datetime.now(timezone.utc)
+    IST = timezone(timedelta(hours=5, minutes=30))
+    ist_now = dt_now.astimezone(IST)
+    today_str = ist_now.strftime("%Y-%m-%d")
+
+    state_file = cache_path / "notified_state.json"
+    state = {}
+    if state_file.exists():
+        try:
+            state = json.loads(state_file.read_text(encoding="utf-8"))
+        except Exception:
+            state = {}
+
+    if state.get("date") != today_str:
+        state = {"date": today_str, "notified_tickers": {}, "cutoff_reminder_sent": False}
+
+    notified_tickers = state.setdefault("notified_tickers", {})
+
+    # Check for new tickers not previously notified today
+    new_opps = [opp for opp in opportunities if opp["ticker"] not in notified_tickers]
+    if new_opps:
+        return True, f"New high-conviction opportunity: {', '.join(o['name'] for o in new_opps)}"
+
+    # Check if an existing opportunity worsened by >= 1.0% drop
+    for opp in opportunities:
+        ticker = opp["ticker"]
+        last_info = notified_tickers.get(ticker, {})
+        last_price = last_info.get("price")
+        curr_price = opp["price"]
+        if last_price and curr_price and last_price > 0:
+            drop_pct = (curr_price - last_price) / last_price * 100.0
+            if drop_pct <= -1.0:
+                return True, f"{opp['name']} dropped an additional {abs(drop_pct):.1f}% today (Price: {curr_price})"
+
+    # Check Pre-Cutoff Power Hour Window (02:15 PM - 02:45 PM IST)
+    is_power_hour = (ist_now.hour == 14 and 15 <= ist_now.minute <= 45)
+    if is_power_hour and not state.get("cutoff_reminder_sent", False):
+        return True, "Pre-3:00 PM IST Mutual Fund Cut-Off Execution Window"
+
+    return False, f"All {len(opportunities)} opportunities already alerted today without significant shift (<1.0%)."
+
+
+def update_intraday_cache(opportunities: list[dict], cache_path: Path, now: datetime | None = None) -> None:
+    """Updates intraday state cache after successful notification dispatch."""
+    from datetime import timedelta, timezone
+    cache_path.mkdir(parents=True, exist_ok=True)
+    state_file = cache_path / "notified_state.json"
+    dt_now = now or datetime.now(timezone.utc)
+    IST = timezone(timedelta(hours=5, minutes=30))
+    ist_now = dt_now.astimezone(IST)
+    today_str = ist_now.strftime("%Y-%m-%d")
+
+    state = {}
+    if state_file.exists():
+        try:
+            state = json.loads(state_file.read_text(encoding="utf-8"))
+        except Exception:
+            state = {}
+
+    if state.get("date") != today_str:
+        state = {"date": today_str, "notified_tickers": {}, "cutoff_reminder_sent": False}
+
+    notified_tickers = state.setdefault("notified_tickers", {})
+    for opp in opportunities:
+        notified_tickers[opp["ticker"]] = {
+            "name": opp["name"],
+            "price": opp["price"],
+            "dd_52": opp["dd_52"],
+            "day_chg": opp["day_chg"],
+            "tier": opp.get("active_tier", 1),
+            "notified_at": ist_now.strftime("%H:%M:%S IST"),
+        }
+
+    # Mark cutoff reminder if sent during power hour
+    if ist_now.hour == 14 and 15 <= ist_now.minute <= 45:
+        state["cutoff_reminder_sent"] = True
+
+    state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
 def resolve_webhook_url(channel: str, explicit_url: str | None = None) -> tuple[str | None, str]:
     """
     Resolves webhook URL and human-readable channel label.
@@ -603,6 +757,7 @@ def resolve_webhook_url(channel: str, explicit_url: str | None = None) -> tuple[
     url_equity = os.getenv("DISCORD_WEBHOOK_URL_EQUITY_FUND_ANALYTICS")
     url_other = os.getenv("DISCORD_WEBHOOK_URL_OTHER_FUND_ANALYTICS")
     url_eod = os.getenv("DISCORD_WEBHOOK_URL_EOD")
+    url_intraday = os.getenv("DISCORD_WEBHOOK_URL_INTRADAY")
     url_legacy = os.getenv("DISCORD_WEBHOOK_URL_ANALYTICS") or os.getenv("DISCORD_WEBHOOK_URL")
 
     ch = channel.lower().lstrip("#")
@@ -612,6 +767,8 @@ def resolve_webhook_url(channel: str, explicit_url: str | None = None) -> tuple[
         return (url_equity or url_legacy), "#equity-fund-analytics"
     if ch in ("other", "other-fund", "other-fund-analytics", "other_fund_analytics"):
         return (url_other or url_legacy), "#other-fund-analytics"
+    if ch in ("intraday", "intraday-analytics", "intraday_analytics"):
+        return (url_intraday or url_legacy), "#intraday"
     if ch in ("eod", "summary"):
         return (url_eod or url_legacy), "#eod"
 
@@ -622,7 +779,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Send Discord webhook notifications for AMFI pipeline.")
     parser.add_argument(
         "--mode",
-        choices=("test", "triggers", "summary"),
+        choices=("test", "triggers", "summary", "intraday"),
         default="test",
         help="Type of notification to send (default: test)",
     )
@@ -634,6 +791,7 @@ def main() -> int:
             "equity-fund-analytics",
             "other-fund-analytics",
             "eod",
+            "intraday",
             "all",
             "analytics",
             "auto",
@@ -654,6 +812,16 @@ def main() -> int:
         default=None,
         help="Explicit Discord Webhook URL (overrides environment variables)",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force send notification even if outside market hours or cached today",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Inspect live opportunities without dispatching Discord webhook",
+    )
 
     args = parser.parse_args()
 
@@ -663,7 +831,12 @@ def main() -> int:
     elif args.channel == "all":
         channels_to_send = ["index-analytics", "equity-fund-analytics", "other-fund-analytics", "eod"]
     elif args.channel == "auto":
-        channels_to_send = ["eod"] if args.mode == "summary" else ["index-analytics", "equity-fund-analytics", "other-fund-analytics"]
+        if args.mode == "summary":
+            channels_to_send = ["eod"]
+        elif args.mode == "intraday":
+            channels_to_send = ["intraday"]
+        else:
+            channels_to_send = ["index-analytics", "equity-fund-analytics", "other-fund-analytics"]
     else:
         channels_to_send = [args.channel]
 
@@ -672,7 +845,7 @@ def main() -> int:
 
     for target_ch in channels_to_send:
         webhook_url, channel_label = resolve_webhook_url(target_ch, args.webhook_url)
-        if not webhook_url:
+        if not webhook_url and not args.dry_run:
             print(
                 f"Warning: No webhook URL found for channel '{channel_label}'. "
                 f"Ensure DISCORD_WEBHOOK_URL_{target_ch.upper().replace('-', '_')} is set.",
@@ -687,6 +860,26 @@ def main() -> int:
             embed = build_triggers_embed(args.database, target_ch)
         elif args.mode == "summary":
             embed = build_summary_embed(args.database)
+        elif args.mode == "intraday":
+            if not args.force and not is_indian_market_hours():
+                print("Outside Indian market hours (09:15 - 15:30 IST, Mon-Fri). Exiting cleanly.")
+                return 0
+
+            opps = scan_live_index_opportunities(only_good_opportunities=True)
+            if not opps:
+                print("No high-conviction intraday opportunities meeting criteria. Skipping notification.")
+                return 0
+
+            cache_dir = Path(".intraday_cache")
+            should_send, reason = check_intraday_deduplication(opps, cache_dir, force=args.force)
+            if not should_send:
+                print(f"Skipping intraday notification: {reason}")
+                return 0
+
+            print(f"High-conviction intraday alert triggered: {reason}")
+            embed = build_intraday_embed(opps, datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"))
+            if not args.dry_run:
+                update_intraday_cache(opps, cache_dir)
         else:
             print(f"Unknown mode: {args.mode}", file=sys.stderr)
             return 1
@@ -696,6 +889,10 @@ def main() -> int:
             payload = {
                 "embeds": [emb],
             }
+            if args.dry_run:
+                print(f"[DRY-RUN] Would deliver to {channel_label}:\n{emb.get('description', '')[:300]}...")
+                success_count += 1
+                continue
             try:
                 send_discord_webhook(webhook_url, payload)
                 print(f"Successfully delivered '{args.mode}' notification to Discord {channel_label}.")
