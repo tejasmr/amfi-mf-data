@@ -22,6 +22,7 @@ for candidate in (_REPO_ROOT / "tjql", _REPO_ROOT.parent / "tjql"):
         sys.path.insert(0, str(candidate))
 
 import duckdb
+from tjql.pipelines.benchmarks.constants import BENCHMARK_CATALOG
 from tjql.pipelines.benchmarks.query import list_benchmarks
 from tjql.pipelines.benchmarks.updater import run_benchmark_daily_update
 
@@ -31,20 +32,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("backfill_benchmarks")
 
-DEFAULT_INDICES = [
-    "NIFTY_50",
-    "NIFTY_NEXT_50",
-    "NIFTY_MIDCAP_150",
-    "NIFTY_SMALLCAP_250",
-    "NIFTY_500",
-    "NIFTY_BANK",
-    "NIFTY_IT",
-    "NIFTY_PHARMA",
-    "NIFTY_FMCG",
-    "NIFTY_AUTO",
-    "NIFTY_METAL",
-    "BSE_SENSEX",
-]
+DEFAULT_INDICES = list(BENCHMARK_CATALOG.keys())
 
 
 def backfill_benchmarks(

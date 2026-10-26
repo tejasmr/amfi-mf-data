@@ -59,7 +59,7 @@ def build_test_embed(channel_label: str = "#index-analytics") -> dict:
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     ch = channel_label.lower().lstrip("#")
     if "index" in ch:
-        scope_desc = "Benchmark Index Dips (NIFTY 50, FMCG, IT, Auto, etc.)"
+        scope_desc = "Market & Sectoral Index Dips (NIFTY 50, Realty, IT, Auto, Energy, etc.)"
     elif "equity" in ch:
         scope_desc = "Core Equity Mutual Funds (Large Cap, Mid Cap, Small Cap, Flexi Cap)"
     elif "other" in ch:
@@ -139,21 +139,59 @@ def build_index_triggers_embed(conn, now_str: str) -> dict:
         b_rows = [b_header, b_sep]
 
         short_names = {
-            "NIFTY_FMCG": "NIFTY FMCG",
+            # Broad Market & Market-Cap
+            "NIFTY_50": "NIFTY 50",
+            "NIFTY_NEXT_50": "NIFTY NEXT 50",
+            "NIFTY_100": "NIFTY 100",
+            "NIFTY_200": "NIFTY 200",
+            "NIFTY_500": "NIFTY 500",
+            "NIFTY_MIDCAP_50": "NIFTY MID 50",
+            "NIFTY_MIDCAP_100": "NIFTY MID 100",
+            "NIFTY_MIDCAP_150": "NIFTY MID 150",
+            "NIFTY_SMALLCAP_50": "NIFTY SML 50",
+            "NIFTY_SMALLCAP_100": "NIFTY SML 100",
+            "NIFTY_SMALLCAP_250": "NIFTY SML 250",
+            "NIFTY_MICROCAP_250": "NIFTY MICRO250",
+            "NIFTY_LARGEMIDCAP_250": "NIFTY LRG/MID",
+            "NIFTY_MIDSMALLCAP_400": "NIFTY MID/SML",
+            "NIFTY_TOTAL_MARKET": "NIFTY TOT MKT",
+            "BSE_SENSEX": "BSE SENSEX",
+            # Sectoral
+            "NIFTY_BANK": "NIFTY BANK",
+            "NIFTY_PSU_BANK": "NIFTY PSU BNK",
+            "NIFTY_FINANCIAL_SERVICES": "NIFTY FIN SER",
             "NIFTY_IT": "NIFTY IT",
+            "NIFTY_PHARMA": "NIFTY PHARMA",
+            "NIFTY_HEALTHCARE": "NIFTY HEALTH",
+            "NIFTY_FMCG": "NIFTY FMCG",
             "NIFTY_AUTO": "NIFTY AUTO",
             "NIFTY_METAL": "NIFTY METAL",
-            "BSE_SENSEX": "BSE SENSEX",
-            "NIFTY_50": "NIFTY 50",
-            "NIFTY_MIDCAP_150": "NIFTY MID 150",
-            "NIFTY_NEXT_50": "NIFTY NEXT 50",
-            "NIFTY_SMALLCAP_250": "NIFTY SML 250",
-            "NIFTY_BANK": "NIFTY BANK",
-            "NIFTY_500": "NIFTY 500",
-            "NIFTY_PHARMA": "NIFTY PHARMA",
+            "NIFTY_REALTY": "NIFTY REALTY",
+            "NIFTY_ENERGY": "NIFTY ENERGY",
+            "NIFTY_OIL_AND_GAS": "NIFTY OIL&GAS",
+            "NIFTY_INFRASTRUCTURE": "NIFTY INFRA",
+            "NIFTY_MEDIA": "NIFTY MEDIA",
+            # Thematic
+            "NIFTY_INDIA_CONSUMPTION": "NIFTY CONSUMP",
+            "NIFTY_COMMODITIES": "NIFTY COMMOD",
+            "NIFTY_CPSE": "NIFTY CPSE",
+            "NIFTY_PSE": "NIFTY PSE",
+            "NIFTY_INDIA_DEFENCE": "NIFTY DEFENCE",
+            "NIFTY_INDIA_DIGITAL": "NIFTY DIGITAL",
+            "NIFTY_INDIA_MANUFACTURING": "NIFTY MFG",
+            "NIFTY_MNC": "NIFTY MNC",
+            "NIFTY_SERVICES_SECTOR": "NIFTY SERVICE",
+            # Strategy / Factor
+            "NIFTY200_MOMENTUM_30": "NIFTY MOM 30",
+            "NIFTY100_LOW_VOLATILITY_30": "NIFTY LOW VOL",
+            "NIFTY_ALPHA_50": "NIFTY ALPHA 50",
+            "NIFTY50_VALUE_20": "NIFTY VAL 20",
+            "NIFTY_DIVIDEND_OPPORTUNITIES_50": "NIFTY DIV OPP",
         }
 
-        for _, r in df_bench.iterrows():
+        total_dips = len(df_bench)
+        displayed_df = df_bench.head(25)
+        for _, r in displayed_df.iterrows():
             bid = r["benchmark_id"]
             name = short_names.get(bid, r["benchmark_name"][:13])
             dip = f"{r['drawdown_pct']:+.1f}%"
@@ -164,9 +202,11 @@ def build_index_triggers_embed(conn, now_str: str) -> dict:
 
         b_table = "```text\n" + "\n".join(b_rows) + "\n```"
         b_legend = "*LOW* = 52W Low (0.00% bounce) | Multipliers: 1.25x (5%) • 1.5x (10%) • 2.0x (15%) • 2.5x (20%)"
-        bench_section = f"## 📊 Benchmark Index Buy Triggers (Dip >= 5%)\n{b_table}\n{b_legend}"
+        if total_dips > 25:
+            b_legend += f"\n*Showing top 25 deepest index dips ({total_dips} currently active).* "
+        bench_section = f"## 📊 Market & Sectoral Index Buy Triggers (Dip >= 5%)\n{b_table}\n{b_legend}"
     else:
-        bench_section = "## 📊 Benchmark Index Triggers\n🟢 All tracked benchmarks are within 5% of their peak (normal market)."
+        bench_section = "## 📊 Market & Sectoral Index Triggers\n🟢 All tracked indices are within 5% of their peak (normal market)."
 
     parts = []
     if hero_items:
@@ -175,23 +215,23 @@ def build_index_triggers_embed(conn, now_str: str) -> dict:
 
     if max_tier >= 4:
         color = 0xED4245
-        title = "🚨 Bear Market Benchmark Triggers Active"
+        title = "🚨 Bear Market Index Triggers Active"
     elif max_tier >= 2:
         color = 0xE67E22
-        title = "📉 Benchmark Correction Triggers Active"
+        title = "📉 Market Index Correction Triggers Active"
     elif max_tier == 1:
         color = 0xF1C40F
-        title = "⚡ Minor Benchmark Pullback Triggers Active"
+        title = "⚡ Minor Index Pullback Triggers Active"
     else:
         color = 0x2ECC71
-        title = "🟢 Normal Market Conditions (Benchmarks)"
+        title = "🟢 Normal Market Conditions (Indices)"
 
     main_title = f"# {title}"
     all_parts = [main_title] + parts
     return {
         "description": "\n\n".join(all_parts),
         "color": color,
-        "footer": {"text": f"TJQL Benchmark Screener • {now_str}"},
+        "footer": {"text": f"TJQL Index Screener • {now_str}"},
     }
 
 
